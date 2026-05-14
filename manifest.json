@@ -1,0 +1,11 @@
+{
+  "id": "plugin-style-marker",
+  "name": "Plugin Style Marker",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "为第三方插件列表添加 data-plugin-name 属性，以支持自定义 CSS 样式。",
+  "author": "流氓兔",
+  "authorUrl": "",
+  "fundingUrl": "",
+  "isDesktopOnly": false
+}
