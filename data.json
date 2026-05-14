@@ -1,0 +1,23 @@
+{
+  "marks": {
+    "2024-03-13.md": {
+      "path": "2024-03-13.md",
+      "status": "pending",
+      "note": "nhdfs",
+      "groupId": "group-1778734809796-128ef1",
+      "updatedAt": 1778735331021
+    }
+  },
+  "groups": [
+    {
+      "id": "ungrouped",
+      "name": "未分组",
+      "collapsed": false
+    },
+    {
+      "id": "group-1778734809796-128ef1",
+      "name": "软件设计",
+      "collapsed": true
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+/* 示例：为特定插件添加自定义样式 */
+
+/* 未启用插件淡化显示 */
+.community-plugin-item[data-plugin-enabled="false"],
+.setting-item[data-plugin-enabled="false"] {
+  filter: grayscale(0.3);
+}
+
+/* 启用插件添加绿色指示点 */
+.vertical-tab-nav-item[data-plugin-enabled="true"]::after,
+.setting-item[data-plugin-enabled="true"]::after {
+  content: "●";
+  color: #4CAF50;
+  margin-left: 8px;
+  font-size: 12px;
+  float: right;
+}
+
+/* 关闭插件添加红色指示点 */
+.vertical-tab-nav-item[data-plugin-enabled="false"]::after,
+.setting-item[data-plugin-enabled="false"]::after {
+  content: "●";
+  color: red;
+  margin-left: 8px;
+  font-size: 12px;
+  float: right;
+}

@@ -420,7 +420,7 @@ class FileMarkerModal extends obsidian.Modal {
 
   // 打开弹窗时构建表单结构。
   onOpen() {
-    const existingMark = this.plugin.getMarkRecord(this.file.path);
+    const existingMark = this.plugin.getMark(this.file.path);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('file-marker-modal');
@@ -462,7 +462,7 @@ class FileMarkerModal extends obsidian.Modal {
     });
     addGroupButton.addEventListener('click', () => {
       new GroupNameModal(this.app, async (groupName) => {
-        const result = await this.plugin.createMarkGroup(groupName);
+        const result = await this.plugin.addGroup(groupName);
         this.buildGroupOptions(groupSelectEl);
         if (result.group) {
           groupSelectEl.value = result.group.id;
@@ -491,7 +491,7 @@ class FileMarkerModal extends obsidian.Modal {
       });
 
       removeButton.addEventListener('click', async () => {
-        await this.plugin.removeMarkRecord(this.file.path);
+        await this.plugin.removeMark(this.file.path);
         new obsidian.Notice('已移除文件标记');
         this.close();
       });
@@ -511,13 +511,13 @@ class FileMarkerModal extends obsidian.Modal {
     });
 
     saveButton.addEventListener('click', async () => {
-      await this.plugin.saveMarkRecord(this.file, {
+      await this.plugin.saveMark(this.file, {
         status: statusSelectEl.value,
         note: noteTextareaEl.value,
         groupId: groupSelectEl.value
       });
 
-      await this.plugin.ensureFileMarkerViewOpen();
+      await this.plugin.activateFileMarkerView();
       new obsidian.Notice('文件标记已保存');
       this.close();
     });
@@ -600,14 +600,14 @@ class FileMarkerView extends obsidian.ItemView {
     const actionEl = headerEl.createDiv({ cls: 'file-marker-view-actions' });
     this.createHeaderButton(actionEl, 'plus', '新增分组', () => {
       new GroupNameModal(this.app, async (groupName) => {
-        return this.plugin.createMarkGroup(groupName);
+        return this.plugin.addGroup(groupName);
       }).open();
     });
     this.createHeaderButton(actionEl, 'fold-vertical', '全部折叠', async () => {
-      await this.plugin.updateAllGroupsCollapsedState(true);
+      await this.plugin.setAllGroupsCollapsed(true);
     });
     this.createHeaderButton(actionEl, 'unfold-vertical', '全部展开', async () => {
-      await this.plugin.updateAllGroupsCollapsedState(false);
+      await this.plugin.setAllGroupsCollapsed(false);
     });
 
     const groupedMarks = this.plugin.getGroupedMarkedFiles();
@@ -636,7 +636,7 @@ class FileMarkerView extends obsidian.ItemView {
       });
 
       groupHeaderEl.addEventListener('click', async () => {
-        await this.plugin.updateGroupCollapsedState(section.group.id, !section.group.collapsed);
+        await this.plugin.setGroupCollapsed(section.group.id, !section.group.collapsed);
       });
 
       if (section.group.collapsed) return;
@@ -693,23 +693,23 @@ class FileMarkerView extends obsidian.ItemView {
         const itemActionEl = rowEl.createDiv({ cls: 'file-marker-item-actions' });
         this.createItemButton(itemActionEl, 'pencil', '编辑', async (event) => {
           event.stopPropagation();
-          this.plugin.openMarkEditor(file);
+          this.plugin.openFileMarkerModal(file);
         });
         this.createItemButton(itemActionEl, 'trash-2', '删除', async (event) => {
           event.stopPropagation();
-          await this.plugin.removeMarkRecord(file.path);
+          await this.plugin.removeMark(file.path);
           new obsidian.Notice('已删除文件标记');
         });
 
         rowEl.addEventListener('click', async () => {
-          await this.plugin.openMarkedFileByPath(file.path);
+          await this.plugin.openMarkedFile(file.path);
         });
 
         rowEl.addEventListener('keydown', async (event) => {
           if (event.key !== 'Enter') return;
 
           event.preventDefault();
-          await this.plugin.openMarkedFileByPath(file.path);
+          await this.plugin.openMarkedFile(file.path);
         });
       });
     });
@@ -909,11 +909,11 @@ class PluginStyleMarker extends obsidian.Plugin {
     await this.store.load(); // 先加载本地持久化数据
     await this.store.pruneMissingMarks(); // 清理已经不存在的文件标记
 
-    this.setupFileMarkerView();
-    this.setupFileMenu();
-    this.setupVaultEvents();
-    this.setupCommandEntries();
-    this.setupLayoutEvents();
+    this.registerFileMarkerView();
+    this.registerFileMenu();
+    this.registerVaultEvents();
+    this.registerCommands();
+    this.registerLayoutEvents();
 
     this.pluginListEnhancer.start();
   }
@@ -929,30 +929,25 @@ class PluginStyleMarker extends obsidian.Plugin {
   }
 
   // 注册侧边栏视图，用于集中展示所有文件标记。
-  /* ------------------------------ */
-  /* 主入口装配 */
-  /* ------------------------------ */
-
-  // 注册侧边栏视图，用于集中展示所有文件标记。
-  setupFileMarkerView() {
+  registerFileMarkerView() {
     this.registerView(FILE_MARKER_VIEW_TYPE, (leaf) => {
       return new FileMarkerView(leaf, this);
     });
   }
 
   // 注册文件资源管理器右键菜单项。
-  setupFileMenu() {
+  registerFileMenu() {
     this.registerEvent(
       this.app.workspace.on('file-menu', (menu, file) => {
         if (!(file instanceof obsidian.TFile)) return;
 
-        const hasMark = Boolean(this.getMarkRecord(file.path));
+        const hasMark = Boolean(this.getMark(file.path));
         menu.addItem((item) => {
           item
             .setTitle(hasMark ? '编辑文件标记' : '添加文件标记')
             .setIcon('tag')
             .onClick(() => {
-              this.openMarkEditor(file);
+              this.openFileMarkerModal(file);
             });
         });
       })
@@ -960,14 +955,14 @@ class PluginStyleMarker extends obsidian.Plugin {
   }
 
   // 注册文件系统事件，保证文件改名或删除后标记数据同步更新。
-  setupVaultEvents() {
+  registerVaultEvents() {
     this.registerEvent(
       this.app.vault.on('rename', async (file, oldPath) => {
         if (!(file instanceof obsidian.TFile)) return;
 
         const hasChanged = await this.store.renameMark(file, oldPath);
         if (hasChanged) {
-          this.refreshAllFileMarkerViews();
+          this.refreshFileMarkerViews();
         }
       })
     );
@@ -978,25 +973,25 @@ class PluginStyleMarker extends obsidian.Plugin {
 
         const hasChanged = await this.store.removeMarkByFile(file);
         if (hasChanged) {
-          this.refreshAllFileMarkerViews();
+          this.refreshFileMarkerViews();
         }
       })
     );
   }
 
   // 注册命令入口，便于用户通过命令面板快速打开文件标记视图。
-  setupCommandEntries() {
+  registerCommands() {
     this.addCommand({
       id: 'open-file-marker-view',
       name: '打开文件标记面板',
       callback: async () => {
-        await this.ensureFileMarkerViewOpen();
+        await this.activateFileMarkerView();
       }
     });
   }
 
   // 注册布局变化监听，保留原有插件列表增强能力。
-  setupLayoutEvents() {
+  registerLayoutEvents() {
     this.registerEvent(
       this.app.workspace.on('layout-change', () => {
         this.pluginListEnhancer.processPluginList();
@@ -1004,12 +999,8 @@ class PluginStyleMarker extends obsidian.Plugin {
     );
   }
 
-  /* ------------------------------ */
-  /* 只读代理 */
-  /* ------------------------------ */
-
   // 返回指定路径的标记记录，未命中时返回空值。
-  getMarkRecord(filePath) {
+  getMark(filePath) {
     return this.settings.marks[filePath] || null;
   }
 
@@ -1038,56 +1029,52 @@ class PluginStyleMarker extends obsidian.Plugin {
     return this.store.getGroupedMarkedFiles();
   }
 
-  /* ------------------------------ */
-  /* 写操作代理 */
-  /* ------------------------------ */
-
   // 打开文件标记编辑弹窗。
-  openMarkEditor(file) {
+  openFileMarkerModal(file) {
     new FileMarkerModal(this.app, this, file).open();
   }
 
   // 保存单个文件的标记记录，并刷新视图。
-  async saveMarkRecord(file, payload) {
+  async saveMark(file, payload) {
     await this.store.saveMark(file, payload);
-    this.refreshAllFileMarkerViews();
+    this.refreshFileMarkerViews();
   }
 
   // 删除单个文件的标记记录，并刷新视图。
-  async removeMarkRecord(filePath) {
+  async removeMark(filePath) {
     const hasChanged = await this.store.removeMark(filePath);
     if (hasChanged) {
-      this.refreshAllFileMarkerViews();
+      this.refreshFileMarkerViews();
     }
 
     return hasChanged;
   }
 
   // 新增分组，并在保存后刷新视图。
-  async createMarkGroup(groupName) {
+  async addGroup(groupName) {
     const result = await this.store.addGroup(groupName);
-    this.refreshAllFileMarkerViews();
+    this.refreshFileMarkerViews();
     return result;
   }
 
   // 切换指定分组的展开或折叠状态。
-  async updateGroupCollapsedState(groupId, collapsed) {
+  async setGroupCollapsed(groupId, collapsed) {
     const hasChanged = await this.store.setGroupCollapsed(groupId, collapsed);
     if (hasChanged) {
-      this.refreshAllFileMarkerViews();
+      this.refreshFileMarkerViews();
     }
 
     return hasChanged;
   }
 
   // 一键展开或折叠全部分组。
-  async updateAllGroupsCollapsedState(collapsed) {
+  async setAllGroupsCollapsed(collapsed) {
     await this.store.setAllGroupsCollapsed(collapsed);
-    this.refreshAllFileMarkerViews();
+    this.refreshFileMarkerViews();
   }
 
   // 打开指定路径对应的文件，不存在时提示用户。
-  async openMarkedFileByPath(filePath) {
+  async openMarkedFile(filePath) {
     const result = await this.store.openMarkedFile(filePath);
     if (!result.success && result.message) {
       new obsidian.Notice(result.message);
@@ -1096,12 +1083,8 @@ class PluginStyleMarker extends obsidian.Plugin {
     return result;
   }
 
-  /* ------------------------------ */
-  /* 视图控制 */
-  /* ------------------------------ */
-
   // 激活文件标记面板，若面板尚未创建则自动在右侧侧边栏打开。
-  async ensureFileMarkerViewOpen() {
+  async activateFileMarkerView() {
     let leaf = this.app.workspace.getLeavesOfType(FILE_MARKER_VIEW_TYPE)[0];
 
     if (!leaf) {
@@ -1120,7 +1103,7 @@ class PluginStyleMarker extends obsidian.Plugin {
   }
 
   // 刷新所有已打开的文件标记视图，保证界面能实时反映最新数据。
-  refreshAllFileMarkerViews() {
+  refreshFileMarkerViews() {
     this.app.workspace.getLeavesOfType(FILE_MARKER_VIEW_TYPE).forEach((leaf) => {
       if (leaf.view instanceof FileMarkerView) {
         leaf.view.render();
